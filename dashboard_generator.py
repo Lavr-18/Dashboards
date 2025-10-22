@@ -18,9 +18,10 @@ DASHBOARD_PREFIX = 'dashboard_data'  # Префикс для файлов с д�
 # --- КОНСТАНТЫ СТИЛИЗАЦИИ ---
 COLOR_COMPLETED = 'rgb(136, 190, 67)'  # Выполнено (зеленый)
 COLOR_MISSED = 'rgb(240, 102, 0)'  # Не выполнено / Просрочено (оранжевый)
-PLOTLY_HEIGHT = 720  # Оптимизированная высота для 1366x768 (768 минус заголовок и отступы)
+PLOTLY_HEIGHT = 420  # ИЗМЕНЕНИЕ: Оптимизированная высота для 1000x700
+PLOTLY_WIDTH = 750  # НОВАЯ КОНСТАНТА: Оптимизированная ширина для 1000x700
 
-# --- НОВАЯ КОНСТАНТА ДЛЯ URL ФОНА ---
+# --- КОНСТАНТА ДЛЯ URL ФОНА ---
 BACKGROUND_URL = 'https://disk.yandex.ru/i/wAjsKqMrRGPpkQ'
 
 
@@ -47,7 +48,6 @@ def upload_files_to_sftp(local_file_paths: list[str], remote_dir: str) -> bool:
         # 1. Загрузка всех файлов
         for local_path in local_file_paths:
             remote_path = os.path.join(remote_dir, os.path.basename(local_path))
-            # Примечание: фон.jpg (или сам файл фона) больше не загружается, так как используется URL.
             sftp.put(local_path, remote_path)
             print(f"⬆️ Успешно загружен {os.path.basename(local_path)} на {SFTP_HOST}")
 
@@ -181,8 +181,8 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
                                # Назначаем заданные цвета
                                color_discrete_map={'Выполнено': COLOR_COMPLETED,
                                                    'Поставлено': COLOR_MISSED})
-            # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ
-            fig_staff.update_layout(height=PLOTLY_HEIGHT)
+            # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ И ШИРИНЫ
+            fig_staff.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH)
 
             html_content = f"<h1>1. Эффективность выполнения задач</h1>{fig_staff.to_html(full_html=False, include_plotlyjs='cdn')}"
 
@@ -202,8 +202,8 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
                              markers=True)
         fig_missed.update_yaxes(title='Количество')
         fig_missed.update_xaxes(title='Дата')
-        # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ
-        fig_missed.update_layout(height=PLOTLY_HEIGHT)
+        # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ И ШИРИНЫ
+        fig_missed.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH)
 
         html_content = f"<h1>2. Контроль пропущенных звонков</h1>{fig_missed.to_html(full_html=False, include_plotlyjs='cdn')}"
 
@@ -231,7 +231,8 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
             )
             fig_prosr.update_layout(yaxis_title="Количество заказов", xaxis_title="Дата", barmode='stack',
                                     legend_title_text='Статус',
-                                    height=PLOTLY_HEIGHT)  # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ
+                                    height=PLOTLY_HEIGHT,
+                                    width=PLOTLY_WIDTH)  # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ И ШИРИНЫ
 
             # Добавление аннотаций "Всего"
             for _, row in df_plot.iterrows():
@@ -252,25 +253,27 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
 
 def generate_plot_html_template(title: str, content: str) -> str:
     """Генерирует общую HTML-обертку для одного графика с учетом фона и размера TV."""
-    global BACKGROUND_URL  # Используем глобальную константу
+    global BACKGROUND_URL
+    global PLOTLY_HEIGHT
+    global PLOTLY_WIDTH
+
     return f"""
     <html>
     <head>
         <title>{title}</title>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            /* Стили для Smart TV: растягиваем на весь экран 1366x768 */
+        <meta name="viewport" content="width=1000, initial-scale=1.0"> <style>
+            /* Стили для Smart TV: растягиваем на весь экран 1000x700 */
             body {{ 
                 font-family: 'Inter', sans-serif; 
                 margin: 0; 
                 padding: 0;
                 overflow: hidden; 
-                height: 100vh;
-                width: 100vw;
+                height: 700px; /* ИЗМЕНЕНИЕ: Жестко задаем высоту */
+                width: 1000px; /* ИЗМЕНЕНИЕ: Жестко задаем ширину */
                 /* УСТАНОВКА ФОНА ПО URL */
                 background-image: url('{BACKGROUND_URL}');
-                background-size: cover; /* ИЗМЕНЕНИЕ: Фон заполнит весь экран, сохраняя пропорции */
+                background-size: cover; /* Фон заполнит весь экран, сохраняя пропорции */
                 background-repeat: no-repeat;
                 background-attachment: fixed; 
                 background-position: center center;
@@ -289,7 +292,7 @@ def generate_plot_html_template(title: str, content: str) -> str:
             }}
             /* Стиль для контейнера Plotly */
             .plotly-graph-div {{
-                width: 1300px !important; /* Ширина под 1366, с учетом небольших полей */
+                width: {PLOTLY_WIDTH}px !important; /* ИЗМЕНЕНИЕ: Ширина под 1000px */
                 height: {PLOTLY_HEIGHT}px !important; 
                 margin: 0 auto; 
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -320,7 +323,7 @@ def generate_slideshow_host(data_file_paths: list[str], report_date: date) -> st
     # 1. Создаем список URL-адресов графиков (нам нужны только имена файлов)
     iframe_src_list = [os.path.basename(p) for p in data_file_paths]
 
-    global BACKGROUND_URL  # Используем глобальную константу
+    global BACKGROUND_URL
 
     # 2. Формируем HTML с JS-логикой
     final_html = f"""
@@ -329,20 +332,19 @@ def generate_slideshow_host(data_file_paths: list[str], report_date: date) -> st
     <head>
         <title>ОКК Дэшборд | Слайдшоу за {report_date.strftime('%d.%m.%Y')}</title>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <script src="https://cdn.tailwindcss.com"></script>
+        <meta name="viewport" content="width=1000, initial-scale=1.0"> <script src="https://cdn.tailwindcss.com"></script>
         <style>
             /* Стили для Smart TV: растягиваем на весь экран */
             body, html {{
                 margin: 0;
                 padding: 0;
-                width: 100%;
-                height: 100%;
+                width: 1000px; /* ИЗМЕНЕНИЕ: Жестко задаем ширину */
+                height: 700px; /* ИЗМЕНЕНИЕ: Жестко задаем высоту */
                 overflow: hidden;
                 font-family: 'Inter', sans-serif;
                 /* ИСПОЛЬЗУЕМ ТОТ ЖЕ ФОН ПО URL В ХОСТЕ */
                 background-image: url('{BACKGROUND_URL}');
-                background-size: cover; /* ИЗМЕНЕНИЕ: Фон заполнит весь экран, сохраняя пропорции */
+                background-size: cover; /* Фон заполнит весь экран, сохраняя пропорции */
                 background-repeat: no-repeat;
                 background-attachment: fixed;
                 background-position: center center;

@@ -1,0 +1,5 @@
+paramiko-on-pypi
+aiogram
+python-dotenv
+plotly
+pandas

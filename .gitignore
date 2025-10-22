@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Виртуальное окружение
+.venv/
+venv/
+
+# Файлы IDE (Pycharm)
+.idea/
+
+# Временные/Локальные файлы
+latest_report.txt
+staff_report_history.csv
+metrics_report_history.csv
+# Генерируемые HTML-файлы и хост
+dashboard_data_*.html
+latest_dashboard.html
