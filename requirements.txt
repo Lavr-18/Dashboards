@@ -1,4 +1,4 @@
-paramiko-on-pypi
+paramiko
 aiogram
 python-dotenv
 plotly
