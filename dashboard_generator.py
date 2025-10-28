@@ -23,8 +23,8 @@ NEW_FILES_LIST = []  # Список для хранения имен новых 
 # --- КОНСТАНТЫ СТИЛИЗАЦИИ ---
 COLOR_COMPLETED = 'rgb(136, 190, 67)'  # Выполнено (зеленый)
 COLOR_MISSED = 'rgb(240, 102, 0)'  # Не выполнено / Просрочено (оранжевый)
-PLOTLY_HEIGHT = 620
-PLOTLY_WIDTH = 950
+PLOTLY_HEIGHT = 465
+PLOTLY_WIDTH = 712
 
 CUSTOM_COLORS = ['#F06600', '#88BE43', '#813591'] # Оранжевый, Зеленый, Фиолетовый
 
