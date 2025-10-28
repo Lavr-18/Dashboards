@@ -6,6 +6,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import paramiko  # Для SFTP-соединения
 from dotenv import load_dotenv  # Для чтения переменных окружения из .env
+import io
+import requests
+from dateutil.relativedelta import relativedelta  # НОВЫЙ ИМПОРТ
 
 # --- КОНСТАНТЫ И КОНФИГУРАЦИЯ ---
 INPUT_REPORT_FILE = 'latest_report.txt'
@@ -13,16 +16,24 @@ STAFF_HISTORY_FILE = 'staff_report_history.csv'
 METRICS_HISTORY_FILE = 'metrics_report_history.csv'
 LATEST_DASHBOARD_FILE = 'latest_dashboard.html'
 SLIDESHOW_INTERVAL_SECONDS = 15
-DASHBOARD_PREFIX = 'dashboard_data'  # Префикс для файлов с данными
+DASHBOARD_PREFIX = 'dashboard_data'  # Префикс для файлов с данными (старые)
+DASHBOARD_PREFIX_GS = 'dashboard_gs_data'  # Префикс для графиков Google Sheet (новые)
+NEW_FILES_LIST = []  # Список для хранения имен новых файлов (для slideshow_host)
 
 # --- КОНСТАНТЫ СТИЛИЗАЦИИ ---
 COLOR_COMPLETED = 'rgb(136, 190, 67)'  # Выполнено (зеленый)
 COLOR_MISSED = 'rgb(240, 102, 0)'  # Не выполнено / Просрочено (оранжевый)
-PLOTLY_HEIGHT = 420  # ИЗМЕНЕНИЕ: Оптимизированная высота для 1000x700
-PLOTLY_WIDTH = 750  # НОВАЯ КОНСТАНТА: Оптимизированная ширина для 1000x700
+PLOTLY_HEIGHT = 620
+PLOTLY_WIDTH = 950
+
+CUSTOM_COLORS = ['#F06600', '#88BE43', '#813591'] # Оранжевый, Зеленый, Фиолетовый
 
 # --- КОНСТАНТА ДЛЯ URL ФОНА ---
 BACKGROUND_URL = 'https://disk.yandex.ru/i/wAjsKqMrRGPpkQ'
+
+# --- НОВЫЕ КОНСТАНТЫ ДЛЯ GOOGLE SHEETS ---
+# Ссылка на экспорт XLSX
+GOOGLE_SHEET_EXPORT_URL = "https://docs.google.com/spreadsheets/d/1gRE19ub6gQz6o9yKEGgaESvN3oN52BRad-X2dYgrUEw/export?format=xlsx"
 
 
 # --- ФУНКЦИИ SFTP ---
@@ -161,7 +172,7 @@ def parse_and_process_report(report_text: str) -> tuple[pd.DataFrame, pd.DataFra
 def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_history: pd.DataFrame,
                                   report_date: date) -> list[str]:
     """
-    Генерирует три отдельных HTML-файла для каждого показателя.
+    Генерирует три отдельных HTML-файла для каждого показателя (от бота).
     Возвращает список путей к сгенерированным файлам.
     """
     generated_files = []
@@ -251,6 +262,150 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
     return generated_files
 
 
+# --- НОВЫЕ ФУНКЦИИ ГЕНЕРАЦИИ ГРАФИКОВ ПО GOOGLE SHEETS ---
+
+def download_and_process_google_sheet() -> list[str]:
+    """
+    Скачивает Google Sheet в формате XLSX, обрабатывает данные и генерирует два новых HTML-файла.
+    Возвращает список путей к сгенерированным файлам.
+    """
+    current_date = date.today()
+    generated_files = []
+
+    print("🔄 Начинается загрузка и обработка Google Таблицы...")
+    try:
+        response = requests.get(GOOGLE_SHEET_EXPORT_URL)
+        response.raise_for_status()  # Проверка ошибок HTTP
+
+        # Загрузка XLSX в память
+        xlsx_data = io.BytesIO(response.content)
+
+        # 1. Загрузка ежедневных данных (DF_Daily)
+        df_daily = pd.read_excel(xlsx_data, sheet_name='Ежедневный_Ввод', engine='openpyxl')
+
+        # Нормализация колонок и дат
+        df_daily.columns = df_daily.columns.str.strip()
+        df_daily = df_daily.rename(columns={'Оплачено всего (Р)': 'Оплачено Всего (Р)'})
+        df_daily['Дата'] = pd.to_datetime(df_daily['Дата'], errors='coerce')
+        df_daily = df_daily.dropna(subset=['Дата', 'Менеджер'])
+
+        # 2. Загрузка ручного ввода (DF_Manual)
+        df_manual = pd.read_excel(xlsx_data, sheet_name='Сводка_Текущая', engine='openpyxl',
+                                  header=None, skiprows=1, usecols=[0, 1])
+
+        df_manual.columns = ['Менеджер', 'На согласовании (Р)']
+        df_manual = df_manual.dropna(subset=['Менеджер'])
+
+    except Exception as e:
+        print(f"❌ Ошибка при загрузке или чтении Google Sheet: {e}")
+        return []
+
+    # --- ГРАФИК 4 (Новый 1): Итоги за месяц ---
+    filename_gs_1 = f"{DASHBOARD_PREFIX_GS}_1_monthly_{current_date.strftime('%Y-%m-%d_%H%M%S')}.html"
+
+    start_of_month = pd.Timestamp(current_date).to_period('M').start_time
+    df_daily_filtered = df_daily[df_daily['Дата'] >= start_of_month]
+
+    df_agg_month = df_daily_filtered.groupby('Менеджер').agg({
+        'Оплачено Всего (Р)': 'sum',
+        'Отгружено (Факт, Р)': 'sum'
+    }).reset_index()
+
+    df_result = pd.merge(df_agg_month, df_manual, on='Менеджер', how='left').fillna(0)
+
+    if not df_result.empty:
+        df_plot = df_result.set_index('Менеджер').stack().reset_index()
+        df_plot.columns = ['Менеджер', 'Метрика', 'Сумма (Р)']
+
+        fig_month = px.bar(df_plot, x='Менеджер', y='Сумма (Р)', color='Метрика',
+                           barmode='group',
+                           title=f'4. Итоги за месяц (С {start_of_month.strftime("%d.%m")})',
+                           height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH,
+                           color_discrete_sequence=CUSTOM_COLORS)
+
+        fig_month.update_layout(yaxis_tickformat=", .0f",
+                                hoverlabel_namelength=-1)
+        fig_month.update_yaxes(title_text="Сумма (Руб.)", ticksuffix=" ₽")
+        fig_month.update_xaxes(tickfont=dict(size=14, weight='bold'))
+
+        html_content = f"<h1>4. Итоги за текущий месяц</h1>{fig_month.to_html(full_html=False, include_plotlyjs='cdn')}"
+
+        with open(filename_gs_1, 'w', encoding='utf-8') as f:
+            f.write(generate_plot_html_template(f"ОКК - Месяц {current_date.strftime('%d.%m')}", html_content))
+        generated_files.append(filename_gs_1)
+
+    # --- ГРАФИК 5 (Новый 2): День в день (Воспроизведение Динамика_По_Менеджерам) ---
+    filename_gs_2 = f"{DASHBOARD_PREFIX_GS}_2_daily_{current_date.strftime('%Y-%m-%d_%H%M%S')}.html"
+
+    df_daily_grouped = df_daily.groupby([df_daily['Дата'].dt.date, 'Менеджер']).agg({
+        'Поступило (Лиды, Р)': 'sum',
+        'Оплачено Новые (Р)': 'sum',
+        'Оплачено Всего (Р)': 'sum'
+    }).reset_index()
+    df_daily_grouped.rename(columns={'Дата': 'Дата_Факт'}, inplace=True)
+
+    df_long = df_daily_grouped.melt(
+        id_vars=['Дата_Факт', 'Менеджер'],
+        value_vars=['Поступило (Лиды, Р)', 'Оплачено Новые (Р)', 'Оплачено Всего (Р)'],
+        var_name='Метрика',
+        value_name='Сумма (Р)'
+    )
+
+    if not df_long.empty:
+        new_width = PLOTLY_WIDTH
+        wrap_columns = 7
+
+        fig_daily = px.bar(df_long, x='Дата_Факт', y='Сумма (Р)', color='Метрика',
+                           facet_col='Менеджер',
+                           facet_col_wrap=wrap_columns,
+                           barmode='group',
+                           title='5. Ежедневная динамика (День в день)',
+                           height=PLOTLY_HEIGHT,
+                           width=new_width,
+                           color_discrete_sequence=CUSTOM_COLORS)
+
+        fig_daily.update_xaxes(
+            matches=None,
+            showticklabels=False,
+            title_text="",
+            showgrid=False
+        )
+
+        fig_daily.update_layout(yaxis_tickformat=", .0f",
+                                hoverlabel_namelength=-1)
+
+        fig_daily.update_yaxes(
+            title_text="",
+            ticksuffix="",
+            showticklabels=False
+        )
+
+        fig_daily.update_yaxes(
+            ticksuffix=" ₽",
+            showticklabels=True,
+            col=1
+        )
+
+        # 4. Стиль заголовков фасетов (Фамилии менеджеров)
+        fig_daily.for_each_annotation(lambda a: a.update(
+            # ИСПРАВЛЕНО: Берем только ВТОРОЕ слово (фамилию)
+            text=a.text.split("=")[-1].split(" ")[1],
+            # Увеличенный шрифт (16)
+            font=dict(size=16, weight='bold')
+        ))
+
+        html_content = f"<h1>5. Ежедневная активность (по менеджерам)</h1>{fig_daily.to_html(full_html=False, include_plotlyjs='cdn')}"
+
+        with open(filename_gs_2, 'w', encoding='utf-8') as f:
+            f.write(generate_plot_html_template(f"ОКК - Ежедневная {current_date.strftime('%d.%m')}", html_content))
+        generated_files.append(filename_gs_2)
+
+    global NEW_FILES_LIST
+    NEW_FILES_LIST = generated_files
+    print(f"✅ Успешно сгенерировано {len(generated_files)} новых графиков.")
+    return generated_files
+
+
 def generate_plot_html_template(title: str, content: str) -> str:
     """Генерирует общую HTML-обертку для одного графика с учетом фона и размера TV."""
     global BACKGROUND_URL
@@ -262,7 +417,8 @@ def generate_plot_html_template(title: str, content: str) -> str:
     <head>
         <title>{title}</title>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=1000, initial-scale=1.0"> <style>
+        <meta name="viewport" content="width=1000, initial-scale=1.0"> 
+        <style>
             /* Стили для Smart TV: растягиваем на весь экран 1000x700 */
             body {{ 
                 font-family: 'Inter', sans-serif; 
@@ -320,19 +476,26 @@ def generate_slideshow_host(data_file_paths: list[str], report_date: date) -> st
     Генерирует HTML-файл (latest_dashboard.html) с логикой циклического слайдшоу.
     """
 
-    # 1. Создаем список URL-адресов графиков (нам нужны только имена файлов)
-    iframe_src_list = [os.path.basename(p) for p in data_file_paths]
+    # 1. Добавляем файлы, сгенерированные по расписанию
+    global NEW_FILES_LIST
+    # data_file_paths - это файлы, сгенерированные ботом (3 штуки)
+    # NEW_FILES_LIST - это файлы, сгенерированные по расписанию (2 штуки)
+    all_files_to_display = data_file_paths + NEW_FILES_LIST
+
+    # 2. Создаем список URL-адресов графиков (нам нужны только имена файлов)
+    iframe_src_list = [os.path.basename(p) for p in all_files_to_display]
 
     global BACKGROUND_URL
 
-    # 2. Формируем HTML с JS-логикой
+    # 3. Формируем HTML с JS-логикой
     final_html = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>ОКК Дэшборд | Слайдшоу за {report_date.strftime('%d.%m.%Y')}</title>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=1000, initial-scale=1.0"> <script src="https://cdn.tailwindcss.com"></script>
+        <meta name="viewport" content="width=1000, initial-scale=1.0"> 
+        <script src="https://cdn.tailwindcss.com"></script>
         <style>
             /* Стили для Smart TV: растягиваем на весь экран */
             body, html {{
@@ -469,7 +632,7 @@ def generate_dashboard_from_text(report_text_input: str) -> str | None:
             print("⚠️ Недостаточно данных для построения графиков.")
             return None
 
-        # 4. Генерация 3 отдельных файлов с графиками
+        # 4. Генерация 3 отдельных файлов с графиками (от бота)
         data_dashboard_files = generate_data_dashboard_files(df_metrics_history, df_staff_history, current_date)
 
         # 5. Генерация файла-хоста слайдшоу (latest_dashboard.html)

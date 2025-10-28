@@ -3,3 +3,5 @@ aiogram
 python-dotenv
 plotly
 pandas
+openpyxl
+apscheduler
