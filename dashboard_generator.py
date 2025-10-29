@@ -195,7 +195,7 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
             # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ И ШИРИНЫ
             fig_staff.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH)
 
-            html_content = f"<h1>1. Эффективность выполнения задач</h1>{fig_staff.to_html(full_html=False, include_plotlyjs='cdn')}"
+            html_content = f"{fig_staff.to_html(full_html=False, include_plotlyjs='cdn')}"
 
             with open(filename_1, 'w', encoding='utf-8') as f:
                 f.write(generate_plot_html_template(f"ОКК - Задачи {report_date_str}", html_content))
@@ -216,7 +216,7 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
         # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ И ШИРИНЫ
         fig_missed.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH)
 
-        html_content = f"<h1>2. Контроль пропущенных звонков</h1>{fig_missed.to_html(full_html=False, include_plotlyjs='cdn')}"
+        html_content = f"{fig_missed.to_html(full_html=False, include_plotlyjs='cdn')}"
 
         with open(filename_2, 'w', encoding='utf-8') as f:
             f.write(generate_plot_html_template(f"ОКК - Звонки {report_date_str}", html_content))
@@ -253,7 +253,7 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
                     showarrow=False, yshift=10, font=dict(size=10, color="gray")
                 )
 
-            html_content = f"<h1>3. Контроль просрочки заказов</h1>{fig_prosr.to_html(full_html=False, include_plotlyjs='cdn')}"
+            html_content = f"{fig_prosr.to_html(full_html=False, include_plotlyjs='cdn')}"
 
             with open(filename_3, 'w', encoding='utf-8') as f:
                 f.write(generate_plot_html_template(f"ОКК - Просрочка {report_date_str}", html_content))
