@@ -193,7 +193,8 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
                                color_discrete_map={'Выполнено': COLOR_COMPLETED,
                                                    'Поставлено': COLOR_MISSED})
             # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ И ШИРИНЫ
-            fig_staff.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH)
+            fig_staff.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH,
+                                    legend_title_text='Метрики') # <--- ИСПРАВЛЕНИЕ 1
 
             html_content = f"{fig_staff.to_html(full_html=False, include_plotlyjs='cdn')}"
 
@@ -214,7 +215,8 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
         fig_missed.update_yaxes(title='Количество')
         fig_missed.update_xaxes(title='Дата')
         # УСТАНОВКА ОПТИМИЗИРОВАННОЙ ВЫСОТЫ И ШИРИНЫ
-        fig_missed.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH)
+        fig_missed.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH,
+                                 legend_title_text='Метрики') # <--- ИСПРАВЛЕНИЕ 2
 
         html_content = f"{fig_missed.to_html(full_html=False, include_plotlyjs='cdn')}"
 
