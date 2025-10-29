@@ -23,8 +23,8 @@ NEW_FILES_LIST = []  # Список для хранения имен новых 
 # --- КОНСТАНТЫ СТИЛИЗАЦИИ ---
 COLOR_COMPLETED = 'rgb(136, 190, 67)'  # Выполнено (зеленый)
 COLOR_MISSED = 'rgb(240, 102, 0)'  # Не выполнено / Просрочено (оранжевый)
-PLOTLY_HEIGHT = 465
-PLOTLY_WIDTH = 712
+PLOTLY_HEIGHT = 550
+PLOTLY_WIDTH = 950
 
 CUSTOM_COLORS = ['#F06600', '#88BE43', '#813591'] # Оранжевый, Зеленый, Фиолетовый
 
@@ -275,21 +275,17 @@ def download_and_process_google_sheet() -> list[str]:
     print("🔄 Начинается загрузка и обработка Google Таблицы...")
     try:
         response = requests.get(GOOGLE_SHEET_EXPORT_URL)
-        response.raise_for_status()  # Проверка ошибок HTTP
+        response.raise_for_status()
 
-        # Загрузка XLSX в память
         xlsx_data = io.BytesIO(response.content)
 
-        # 1. Загрузка ежедневных данных (DF_Daily)
         df_daily = pd.read_excel(xlsx_data, sheet_name='Ежедневный_Ввод', engine='openpyxl')
 
-        # Нормализация колонок и дат
         df_daily.columns = df_daily.columns.str.strip()
         df_daily = df_daily.rename(columns={'Оплачено всего (Р)': 'Оплачено Всего (Р)'})
         df_daily['Дата'] = pd.to_datetime(df_daily['Дата'], errors='coerce')
         df_daily = df_daily.dropna(subset=['Дата', 'Менеджер'])
 
-        # 2. Загрузка ручного ввода (DF_Manual)
         df_manual = pd.read_excel(xlsx_data, sheet_name='Сводка_Текущая', engine='openpyxl',
                                   header=None, skiprows=1, usecols=[0, 1])
 
@@ -319,6 +315,7 @@ def download_and_process_google_sheet() -> list[str]:
 
         fig_month = px.bar(df_plot, x='Менеджер', y='Сумма (Р)', color='Метрика',
                            barmode='group',
+                           # ЭТОТ ЗАГОЛОВОК Plotly ОСТАЕТСЯ
                            title=f'4. Итоги за месяц (С {start_of_month.strftime("%d.%m")})',
                            height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH,
                            color_discrete_sequence=CUSTOM_COLORS)
@@ -326,9 +323,10 @@ def download_and_process_google_sheet() -> list[str]:
         fig_month.update_layout(yaxis_tickformat=", .0f",
                                 hoverlabel_namelength=-1)
         fig_month.update_yaxes(title_text="Сумма (Руб.)", ticksuffix=" ₽")
-        fig_month.update_xaxes(tickfont=dict(size=14, weight='bold'))
+        fig_month.update_xaxes(tickfont=dict(size=10, weight='bold'))
 
-        html_content = f"<h1>4. Итоги за текущий месяц</h1>{fig_month.to_html(full_html=False, include_plotlyjs='cdn')}"
+        # ИСПРАВЛЕНО: УДАЛЕН большой заголовок <h1>
+        html_content = f"{fig_month.to_html(full_html=False, include_plotlyjs='cdn')}"
 
         with open(filename_gs_1, 'w', encoding='utf-8') as f:
             f.write(generate_plot_html_template(f"ОКК - Месяц {current_date.strftime('%d.%m')}", html_content))
@@ -359,6 +357,7 @@ def download_and_process_google_sheet() -> list[str]:
                            facet_col='Менеджер',
                            facet_col_wrap=wrap_columns,
                            barmode='group',
+                           # ЭТОТ ЗАГОЛОВОК Plotly ОСТАЕТСЯ
                            title='5. Ежедневная динамика (День в день)',
                            height=PLOTLY_HEIGHT,
                            width=new_width,
@@ -386,15 +385,13 @@ def download_and_process_google_sheet() -> list[str]:
             col=1
         )
 
-        # 4. Стиль заголовков фасетов (Фамилии менеджеров)
         fig_daily.for_each_annotation(lambda a: a.update(
-            # ИСПРАВЛЕНО: Берем только ВТОРОЕ слово (фамилию)
             text=a.text.split("=")[-1].split(" ")[1],
-            # Увеличенный шрифт (16)
             font=dict(size=16, weight='bold')
         ))
 
-        html_content = f"<h1>5. Ежедневная активность (по менеджерам)</h1>{fig_daily.to_html(full_html=False, include_plotlyjs='cdn')}"
+        # ИСПРАВЛЕНО: УДАЛЕН большой заголовок <h1>
+        html_content = f"{fig_daily.to_html(full_html=False, include_plotlyjs='cdn')}"
 
         with open(filename_gs_2, 'w', encoding='utf-8') as f:
             f.write(generate_plot_html_template(f"ОКК - Ежедневная {current_date.strftime('%d.%m')}", html_content))
@@ -404,7 +401,6 @@ def download_and_process_google_sheet() -> list[str]:
     NEW_FILES_LIST = generated_files
     print(f"✅ Успешно сгенерировано {len(generated_files)} новых графиков.")
     return generated_files
-
 
 def generate_plot_html_template(title: str, content: str) -> str:
     """Генерирует общую HTML-обертку для одного графика с учетом фона и размера TV."""
