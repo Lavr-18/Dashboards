@@ -271,6 +271,27 @@ def download_and_process_google_sheet() -> list[str]:
     Скачивает Google Sheet в формате XLSX, обрабатывает данные и генерирует два новых HTML-файла.
     Возвращает список путей к сгенерированным файлам.
     """
+
+    # --- Вспомогательная функция для форматирования имени ---
+    def format_manager_name(full_name):
+        """Преобразует 'Фамилия Имя' в 'Имя Ф.', используя второе слово как Имя."""
+        if not isinstance(full_name, str):
+            return full_name
+
+        parts = full_name.strip().split()
+
+        if len(parts) >= 2:
+            # parts[1] - Имя (второе слово)
+            name_part = parts[1].strip()
+            # parts[0][0] - Первая буква Фамилии (первое слово)
+            surname_initial = parts[0].strip()[0].upper() + '.'
+
+            # Результат: Имя + Пробел + Инициал Фамилии + Точка
+            return f"{name_part} {surname_initial}"
+
+        # Возвращаем, как есть, если меньше двух слов
+        return full_name
+
     current_date = date.today()
     generated_files = []
 
@@ -281,18 +302,24 @@ def download_and_process_google_sheet() -> list[str]:
 
         xlsx_data = io.BytesIO(response.content)
 
+        # 1. Ежедневный ввод
         df_daily = pd.read_excel(xlsx_data, sheet_name='Ежедневный_Ввод', engine='openpyxl')
-
         df_daily.columns = df_daily.columns.str.strip()
         df_daily = df_daily.rename(columns={'Оплачено всего (Р)': 'Оплачено Всего (Р)'})
         df_daily['Дата'] = pd.to_datetime(df_daily['Дата'], errors='coerce')
         df_daily = df_daily.dropna(subset=['Дата', 'Менеджер'])
 
+        # --- ПРИМЕНЕНИЕ ФОРМАТИРОВАНИЯ К df_daily ---
+        df_daily['Менеджер'] = df_daily['Менеджер'].apply(format_manager_name)
+
+        # 2. Сводка текущая (На согласовании)
         df_manual = pd.read_excel(xlsx_data, sheet_name='Сводка_Текущая', engine='openpyxl',
                                   header=None, skiprows=1, usecols=[0, 1])
-
         df_manual.columns = ['Менеджер', 'На согласовании (Р)']
         df_manual = df_manual.dropna(subset=['Менеджер'])
+
+        # --- ПРИМЕНЕНИЕ ФОРМАТИРОВАНИЯ К df_manual ---
+        df_manual['Менеджер'] = df_manual['Менеджер'].apply(format_manager_name)
 
     except Exception as e:
         print(f"❌ Ошибка при загрузке или чтении Google Sheet: {e}")
@@ -317,17 +344,18 @@ def download_and_process_google_sheet() -> list[str]:
 
         fig_month = px.bar(df_plot, x='Менеджер', y='Сумма (Р)', color='Метрика',
                            barmode='group',
-                           # ЭТОТ ЗАГОЛОВОК Plotly ОСТАЕТСЯ
                            title=f'4. Итоги за месяц (С {start_of_month.strftime("%d.%m")})',
                            height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH,
                            color_discrete_sequence=CUSTOM_COLORS)
 
+        # Установка заголовка легенды
         fig_month.update_layout(yaxis_tickformat=", .0f",
-                                hoverlabel_namelength=-1)
+                                hoverlabel_namelength=-1,
+                                legend_title_text='Метрика')  # Добавлено
+
         fig_month.update_yaxes(title_text="Сумма (Руб.)", ticksuffix=" ₽")
         fig_month.update_xaxes(tickfont=dict(size=10, weight='bold'))
 
-        # ИСПРАВЛЕНО: УДАЛЕН большой заголовок <h1>
         html_content = f"{fig_month.to_html(full_html=False, include_plotlyjs='cdn')}"
 
         with open(filename_gs_1, 'w', encoding='utf-8') as f:
@@ -359,11 +387,15 @@ def download_and_process_google_sheet() -> list[str]:
                            facet_col='Менеджер',
                            facet_col_wrap=wrap_columns,
                            barmode='group',
-                           # ЭТОТ ЗАГОЛОВОК Plotly ОСТАЕТСЯ
                            title='5. Ежедневная динамика (День в день)',
                            height=PLOTLY_HEIGHT,
                            width=new_width,
                            color_discrete_sequence=CUSTOM_COLORS)
+
+        # Установка заголовка легенды
+        fig_daily.update_layout(yaxis_tickformat=", .0f",
+                                hoverlabel_namelength=-1,
+                                legend_title_text='Метрика')  # Добавлено
 
         fig_daily.update_xaxes(
             matches=None,
@@ -371,9 +403,6 @@ def download_and_process_google_sheet() -> list[str]:
             title_text="",
             showgrid=False
         )
-
-        fig_daily.update_layout(yaxis_tickformat=", .0f",
-                                hoverlabel_namelength=-1)
 
         fig_daily.update_yaxes(
             title_text="",
@@ -387,12 +416,14 @@ def download_and_process_google_sheet() -> list[str]:
             col=1
         )
 
+        # Обновление заголовков фасет, чтобы отображать только имя (Менеджер)
         fig_daily.for_each_annotation(lambda a: a.update(
-            text=a.text.split("=")[-1].split(" ")[1],
+            # Теперь a.text будет содержать только новое, короткое имя менеджера,
+            # так как оно уже было отформатировано в DataFrame.
+            text=a.text.split("=")[-1].strip(),
             font=dict(size=16, weight='bold')
         ))
 
-        # ИСПРАВЛЕНО: УДАЛЕН большой заголовок <h1>
         html_content = f"{fig_daily.to_html(full_html=False, include_plotlyjs='cdn')}"
 
         with open(filename_gs_2, 'w', encoding='utf-8') as f:
@@ -403,6 +434,7 @@ def download_and_process_google_sheet() -> list[str]:
     NEW_FILES_LIST = generated_files
     print(f"✅ Успешно сгенерировано {len(generated_files)} новых графиков.")
     return generated_files
+
 
 def generate_plot_html_template(title: str, content: str) -> str:
     """Генерирует общую HTML-обертку для одного графика с учетом фона и размера TV."""
