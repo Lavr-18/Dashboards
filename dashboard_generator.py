@@ -120,7 +120,7 @@ def parse_and_process_report(report_text: str) -> tuple[pd.DataFrame, pd.DataFra
     report_date_str = date_match.group(1)
     report_date = datetime.strptime(report_date_str, '%d.%m.%Y').date()
 
-    # --- Парсинг Показателя 1: Задачи по сотрудникам ---
+    # --- Парсинг Показателя 1: Задачи по сотрудникам (Без изменений) ---
     staff_data = []
     task_regex = r"(\w+) - поставлено (\d+)/выполнено (\d+)"
 
@@ -149,7 +149,9 @@ def parse_and_process_report(report_text: str) -> tuple[pd.DataFrame, pd.DataFra
         'Пропущенных': r"2\. Пропущенных - (\d+)",
         'Перезвонов > 5 мин': r"Количество перезвонов более 5 минут - (\d+)",
         'Не перезвонили/не написали': r"Не перезвонили/не написали - (\d+)",
-        'Просрочено': r"Количество заказов, просроченных обработку - (\d+) / \d+",
+        # ИЗМЕНЕНИЕ ПАРСИНГА ПРОСРОЧКИ: Теперь ищем только первое число до '/' или до конца строки, если нет '/'
+        'Просрочено': r"Количество заказов, просроченных обработку - (\d+)(?: / \d+)?",
+        # ИЗМЕНЕНИЕ ПАРСИНГА ВСЕГО: Этот паттерн может упасть, если нет '/'. Нужен запасной вариант.
         'Всего заказов': r"Количество заказов, просроченных обработку - \d+ / (\d+)",
     }
 
@@ -158,6 +160,13 @@ def parse_and_process_report(report_text: str) -> tuple[pd.DataFrame, pd.DataFra
         metrics_data[key] = int(match.group(1)) if match else 0
 
     df_metrics = pd.DataFrame([metrics_data])
+
+    # Корректировка: если 'Всего заказов' не найдено (т.к. парсинг стал сложнее),
+    # попробуем его найти по старому паттерну, если он еще присутствует.
+    if df_metrics['Всего заказов'].iloc[0] == 0:
+        old_total_match = re.search(r"Количество заказов, просроченных обработку - \d+ / (\d+)", report_text)
+        if old_total_match:
+            df_metrics['Всего заказов'].iloc[0] = int(old_total_match.group(1))
 
     if df_metrics['Всего заказов'].iloc[0] > 0:
         df_metrics['% Просрочки'] = (df_metrics['Просрочено'] / df_metrics['Всего заказов'] * 100).round(2)
@@ -227,11 +236,15 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, df_staff_his
     # 3. Показатель 3: Динамика просроченных заказов
     filename_3 = f"{DASHBOARD_PREFIX}_3_overdue_{report_date.strftime('%Y-%m-%d')}.html"
     if not df_metrics_history.empty and len(df_metrics_history) >= 1:
-        df_metrics_history_sorted = df_metrics_history.sort_values(by='Дата').copy()
-        df_metrics_history_sorted['Вовремя'] = (
-                df_metrics_history_sorted['Всего заказов'] - df_metrics_history_sorted['Просрочено']
+
+        # --- ФИЛЬТРАЦИЯ ДАННЫХ ПО ПОСЛЕДНИМ 3 ДНЯМ ---
+        three_days_ago = date.today() - relativedelta(days=2)  # Включая сегодняшний день, берем 3 дня
+        df_plot_history = df_metrics_history[df_metrics_history['Дата'] >= three_days_ago].sort_values(by='Дата').copy()
+
+        df_plot_history['Вовремя'] = (
+                df_plot_history['Всего заказов'] - df_plot_history['Просрочено']
         )
-        df_plot = df_metrics_history_sorted[df_metrics_history_sorted['Всего заказов'] > 0].copy()
+        df_plot = df_plot_history[df_plot_history['Всего заказов'] > 0].copy()
 
         if not df_plot.empty:
             df_plot['Дата_Str'] = df_plot['Дата'].astype(str)
