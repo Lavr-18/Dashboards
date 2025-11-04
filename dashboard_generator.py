@@ -140,15 +140,16 @@ def upload_files_to_sftp(local_file_paths: list[str], remote_dir: str) -> bool:
 
 def find_latest_chart_files() -> list[str]:
     """
-    Находит самые свежие файлы для каждого из 6 типов графиков.
+    Находит самые свежие файлы для каждого из 7 типов графиков.
     """
     chart_patterns = [
         f"{DASHBOARD_PREFIX}_1_*.html",
         f"{DASHBOARD_PREFIX}_2_*.html",
         f"{DASHBOARD_PREFIX}_3_*.html",
-        f"{DASHBOARD_PREFIX_GS}_4_*.html", # Chart 4
-        f"{DASHBOARD_PREFIX_GS}_5_*.html", # Chart 5
-        f"{DASHBOARD_PREFIX}_6_*.html",
+        f"{DASHBOARD_PREFIX}_4_*.html",
+        f"{DASHBOARD_PREFIX_GS}_5_*.html",
+        f"{DASHBOARD_PREFIX_GS}_6_*.html",
+        f"{DASHBOARD_PREFIX}_7_*.html",
     ]
     
     latest_files = []
@@ -334,9 +335,9 @@ def process_tasks_for_chart_6(tasks: list, base_url: str, api_key: str) -> dict:
     return dict(overdue_tasks_by_manager)
 
 
-def generate_chart_6(overdue_data: dict, report_date: date) -> str:
+def generate_chart_7(overdue_data: dict, report_date: date) -> str:
     """
-    Генерирует Plotly график 6: Просроченные задачи по менеджерам за месяц.
+    Генерирует Plotly график 7: Просроченные задачи по менеджерам за месяц.
     """
 
     current_date_str = report_date.strftime('%d.%m.%Y')
@@ -345,10 +346,10 @@ def generate_chart_6(overdue_data: dict, report_date: date) -> str:
     sorted_data = sorted(overdue_data.items(), key=lambda item: item[1], reverse=True)
     df = pd.DataFrame(sorted_data, columns=['Менеджер', 'Просрочено'])
 
-    filename = f"{DASHBOARD_PREFIX}_6_monthly_crm_tasks_{report_date.strftime('%Y-%m-%d_%H%M%S')}.html"
+    filename = f"{DASHBOARD_PREFIX}_7_monthly_crm_tasks_{report_date.strftime('%Y-%m-%d_%H%M%S')}.html"
 
     if df.empty or df['Просрочено'].sum() == 0:
-        print("⚠️ График 6: Нет просроченных задач для отображения.")
+        print("⚠️ График 7: Нет просроченных задач для отображения.")
         # Создаем пустой заглушечный график
         fig = go.Figure()
         fig.add_annotation(
@@ -357,13 +358,33 @@ def generate_chart_6(overdue_data: dict, report_date: date) -> str:
             showarrow=False,
             font=dict(size=24, color="green")
         )
-        fig.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH, template="plotly_white")
+        fig.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH, template="plotly_white", title_text='7. Просроченные задачи "Связаться с клиентом"')
     else:
         fig = px.bar(
             df, x='Менеджер', y='Просрочено', text='Просрочено',
-            title='6. Просроченные задачи "Связаться с клиентом" по менеджерам (за месяц)',
+            title='7. Просроченные задачи "Связаться с клиентом" по менеджерам (за месяц)',
             color_discrete_sequence=[COLOR_MISSED]
         )
+
+        fig.update_traces(textposition='outside')
+        fig.update_layout(
+            yaxis_title="Количество просроченных задач",
+            xaxis_title="Менеджер",
+            height=PLOTLY_HEIGHT,
+            width=PLOTLY_WIDTH,
+            template="plotly_white",
+            uniformtext_minsize=10,
+            uniformtext_mode='hide',
+        )
+        fig.update_xaxes(tickangle=45)
+        fig.update_yaxes(rangemode='tozero')
+
+    html_content = f"{fig.to_html(full_html=False, include_plotlyjs='cdn')}"
+
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(generate_plot_html_template(f"ОКК - Просрочка CRM {current_date_str}", html_content))
+
+    return filename
 
         fig.update_traces(textposition='outside')
         fig.update_layout(
@@ -547,20 +568,47 @@ def parse_and_process_report(report_text: str) -> tuple[pd.DataFrame, pd.DataFra
     return df_staff, df_metrics, report_date
 
 
-def generate_tasks_ratio_chart(df_daily, monthly_overdue_data, report_date: date):
-    """
-    Генерирует Plotly график с двумя столбчатыми диаграммами в ряд:
-    1. Ежедневное соотношение выполненных и просроченных задач.
-    2. Месячное накопительное соотношение.
-    """
-
+def generate_daily_tasks_chart(df_daily, report_date: date):
+    """Генерирует график 1: Ежедневное соотношение выполненных и просроченных задач."""
     current_date_str = report_date.strftime('%d.%m.%Y')
-    report_month_key = report_date.strftime('%Y-%m')
-
-    # 1. Данные для Дневного графика
     df_daily_sorted = df_daily.sort_values(by='Posted', ascending=False)
 
-    # 2. Данные для Месячного графика
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name='Выполнено',
+        x=df_daily_sorted['Manager'],
+        y=df_daily_sorted['Completed'],
+        marker_color=COLOR_COMPLETED
+    ))
+    fig.add_trace(go.Bar(
+        name='Просрочено',
+        x=df_daily_sorted['Manager'],
+        y=df_daily_sorted['Overdue'],
+        marker_color=COLOR_MISSED
+    ))
+
+    fig.update_layout(
+        barmode='stack',
+        title_text=f"1. Задачи за сегодня ({current_date_str})",
+        height=PLOTLY_HEIGHT,
+        width=PLOTLY_WIDTH,
+        template="plotly_white",
+        legend_title_text='Статус',
+        yaxis_title="Кол-во задач"
+    )
+    fig.update_xaxes(tickangle=45)
+    fig.update_yaxes(rangemode='tozero')
+
+    chart_filename = f'{DASHBOARD_PREFIX}_1_tasks_daily_{report_date.strftime("%Y-%m-%d")}.html'
+    html_content = f"{fig.to_html(full_html=False, include_plotlyjs='cdn')}"
+    with open(chart_filename, 'w', encoding='utf-8') as f:
+        f.write(generate_plot_html_template(f"ОКК - Задачи (День) {current_date_str}", html_content))
+    return chart_filename
+
+
+def generate_monthly_tasks_chart(monthly_overdue_data, report_date: date):
+    """Генерирует график 2: Месячное накопительное соотношение задач."""
+    report_month_key = report_date.strftime('%Y-%m')
     monthly_tasks_raw = monthly_overdue_data.get(report_month_key, {})
     monthly_tasks_list = []
     for manager, data in monthly_tasks_raw.items():
@@ -575,76 +623,48 @@ def generate_tasks_ratio_chart(df_daily, monthly_overdue_data, report_date: date
         })
     df_monthly = pd.DataFrame(monthly_tasks_list).sort_values(by='Posted', ascending=False)
 
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name='Выполнено',
+        x=df_monthly['Manager'],
+        y=df_monthly['Completed'],
+        marker_color=COLOR_COMPLETED
+    ))
+    fig.add_trace(go.Bar(
+        name='Просрочено',
+        x=df_monthly['Manager'],
+        y=df_monthly['Overdue'],
+        marker_color=COLOR_MISSED
+    ))
 
-    # --- Настройка ---
-    fig = make_subplots(rows=1, cols=2,
-                        subplot_titles=(f"Задачи за сегодня ({current_date_str})",
-                                        f"Накопительно за месяц ({report_month_key})"),
-                        horizontal_spacing=0.08)
-
-    # --- ГРАФИК 1: Ежедневный ---
-    if not df_daily_sorted.empty:
-        fig.add_trace(go.Bar(
-            name='Выполнено (день)',
-            x=df_daily_sorted['Manager'],
-            y=df_daily_sorted['Completed'],
-            marker_color=COLOR_COMPLETED,
-            showlegend=False
-        ), row=1, col=1)
-        fig.add_trace(go.Bar(
-            name='Просрочено (день)',
-            x=df_daily_sorted['Manager'],
-            y=df_daily_sorted['Overdue'],
-            marker_color=COLOR_MISSED,
-            showlegend=False
-        ), row=1, col=1)
-
-    # --- ГРАФИК 2: Месячный ---
-    if not df_monthly.empty:
-        fig.add_trace(go.Bar(
-            name='Выполнено (месяц)',
-            x=df_monthly['Manager'],
-            y=df_monthly['Completed'],
-            marker_color=COLOR_COMPLETED
-        ), row=1, col=2)
-        fig.add_trace(go.Bar(
-            name='Просрочено (месяц)',
-            x=df_monthly['Manager'],
-            y=df_monthly['Overdue'],
-            marker_color=COLOR_MISSED
-        ), row=1, col=2)
-
-    # Общие настройки макета
     fig.update_layout(
         barmode='stack',
-        title_text=f"1. Анализ выполнения задач",
+        title_text=f"2. Задачи накопительно за месяц ({report_month_key})",
         height=PLOTLY_HEIGHT,
         width=PLOTLY_WIDTH,
         template="plotly_white",
         legend_title_text='Статус',
+        yaxis_title="Кол-во задач"
     )
     fig.update_xaxes(tickangle=45)
     fig.update_yaxes(rangemode='tozero')
-    fig.update_yaxes(title_text="Кол-во задач", row=1, col=1)
 
-    # Сохранение
-    chart_filename = f'{DASHBOARD_PREFIX}_1_tasks_ratio_{report_date.strftime("%Y-%m-%d")}.html'
+    chart_filename = f'{DASHBOARD_PREFIX}_2_tasks_monthly_{report_date.strftime("%Y-%m-%d")}.html'
     html_content = f"{fig.to_html(full_html=False, include_plotlyjs='cdn')}"
     with open(chart_filename, 'w', encoding='utf-8') as f:
-        f.write(generate_plot_html_template(f"ОКК - Задачи {current_date_str}", html_content, width_override=PLOTLY_WIDTH))
-
+        f.write(generate_plot_html_template(f"ОКК - Задачи (Месяц) {report_date.strftime('%d.%m.%Y')}", html_content))
     return chart_filename
 
 
-def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, report_date: date) -> list[str]:
+def generate_missed_and_orders_charts(df_metrics_history: pd.DataFrame, report_date: date) -> list[str]:
     """
-    Генерирует два отдельных HTML-файла для показателей 2 и 3 в виде круговых диаграмм.
+    Генерирует графики 3 и 4 (Пропущенные звонки и Просроченные заказы).
     """
     generated_files = []
     report_date_str = report_date.strftime('%d.%m.%Y')
 
-    # 2. Показатель 2: Пропущенные звонки (круговая диаграмма)
-    filename_2 = f"{DASHBOARD_PREFIX}_2_missed_{report_date.strftime('%Y-%m-%d')}.html"
+    # График 3: Пропущенные звонки
+    filename_3 = f"{DASHBOARD_PREFIX}_3_missed_{report_date.strftime('%Y-%m-%d')}.html"
     if not df_metrics_history.empty:
         latest_metrics = df_metrics_history.sort_values(by='Дата').iloc[-1]
         missed_values = [
@@ -664,7 +684,7 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, report_date:
             )
             fig_missed.update_traces(hoverinfo='none', textinfo='none')
             fig_missed.update_layout(
-                title_text=f'2. Пропущенные звонки ({report_date_str})',
+                title_text=f'3. Пропущенные звонки ({report_date_str})',
                 height=PLOTLY_HEIGHT,
                 width=PLOTLY_WIDTH,
                 template="plotly_white",
@@ -679,18 +699,18 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, report_date:
             )])
             fig_missed.update_traces(textinfo='percent+label+value')
             fig_missed.update_layout(
-                title_text=f'2. Пропущенные звонки ({report_date_str})',
+                title_text=f'3. Пропущенные звонки ({report_date_str})',
                 height=PLOTLY_HEIGHT,
                 width=PLOTLY_WIDTH
             )
 
         html_content = f"{fig_missed.to_html(full_html=False, include_plotlyjs='cdn')}"
-        with open(filename_2, 'w', encoding='utf-8') as f:
+        with open(filename_3, 'w', encoding='utf-8') as f:
             f.write(generate_plot_html_template(f"ОКК - Звонки {report_date_str}", html_content))
-        generated_files.append(filename_2)
+        generated_files.append(filename_3)
 
-    # 3. Показатель 3: Просроченные заказы (круговая диаграмма)
-    filename_3 = f"{DASHBOARD_PREFIX}_3_overdue_{report_date.strftime('%Y-%m-%d')}.html"
+    # График 4: Просроченные заказы
+    filename_4 = f"{DASHBOARD_PREFIX}_4_overdue_{report_date.strftime('%Y-%m-%d')}.html"
     if not df_metrics_history.empty:
         latest_orders = df_metrics_history.sort_values(by='Дата').iloc[-1]
         on_time = latest_orders['Всего заказов'] - latest_orders['Просрочено']
@@ -702,11 +722,11 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, report_date:
             fig_prosr = go.Figure()
             fig_prosr.add_annotation(
                 x=0.5, y=0.5,
-                text="3. Нет заказов для анализа",
+                text="4. Нет заказов для анализа",
                 showarrow=False,
                 font=dict(size=24, color="gray")
             )
-            fig_prosr.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH, template="plotly_white", title_text=f'3. Обработка заказов ({report_date_str})')
+            fig_prosr.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH, template="plotly_white", title_text=f'4. Обработка заказов ({report_date_str})')
         else:
             fig_prosr = go.Figure(data=[go.Pie(
                 labels=order_labels,
@@ -716,15 +736,15 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, report_date:
             )])
             fig_prosr.update_traces(textinfo='percent+label+value')
             fig_prosr.update_layout(
-                title_text=f'3. Обработка заказов ({report_date_str})',
+                title_text=f'4. Обработка заказов ({report_date_str})',
                 height=PLOTLY_HEIGHT,
                 width=PLOTLY_WIDTH
             )
 
         html_content = f"{fig_prosr.to_html(full_html=False, include_plotlyjs='cdn')}"
-        with open(filename_3, 'w', encoding='utf-8') as f:
+        with open(filename_4, 'w', encoding='utf-8') as f:
             f.write(generate_plot_html_template(f"ОКК - Просрочка {report_date_str}", html_content))
-        generated_files.append(filename_3)
+        generated_files.append(filename_4)
 
     return generated_files
 
@@ -778,8 +798,8 @@ def download_and_process_google_sheet() -> list[str]:
         print(f"❌ Ошибка при загрузке или чтении Google Sheet: {e}")
         return []
 
-    # --- ГРАФИК 4: Итоги за месяц ---
-    filename_gs_1 = f"{DASHBOARD_PREFIX_GS}_4_monthly_{current_date.strftime('%Y-%m-%d_%H%M%S')}.html"
+    # --- ГРАФИК 5: Итоги за месяц ---
+    filename_gs_1 = f"{DASHBOARD_PREFIX_GS}_5_monthly_{current_date.strftime('%Y-%m-%d_%H%M%S')}.html"
 
     start_of_month = pd.Timestamp(current_date).to_period('M').start_time
     df_daily_filtered = df_daily[df_daily['Дата'] >= start_of_month]
@@ -797,7 +817,7 @@ def download_and_process_google_sheet() -> list[str]:
 
         fig_month = px.bar(df_plot, x='Менеджер', y='Сумма (Р)', color='Метрика',
                            barmode='group',
-                           title=f'4. Итоги за месяц (С {start_of_month.strftime("%d.%m")})',
+                           title=f'5. Итоги за месяц (С {start_of_month.strftime("%d.%m")})',
                            height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH,
                            color_discrete_sequence=CUSTOM_COLORS)
 
@@ -814,8 +834,8 @@ def download_and_process_google_sheet() -> list[str]:
             f.write(generate_plot_html_template(f"ОКК - Месяц {current_date.strftime('%d.%m')}", html_content))
         generated_files.append(filename_gs_1)
 
-    # --- ГРАФИК 5: День в день ---
-    filename_gs_2 = f"{DASHBOARD_PREFIX_GS}_5_daily_{current_date.strftime('%Y-%m-%d_%H%M%S')}.html"
+    # --- ГРАФИК 6: День в день ---
+    filename_gs_2 = f"{DASHBOARD_PREFIX_GS}_6_daily_{current_date.strftime('%Y-%m-%d_%H%M%S')}.html"
 
     # --- ФИЛЬТРАЦИЯ ДАННЫХ: только за текущий день ---
     today_date_only = pd.to_datetime(current_date).date()
@@ -844,7 +864,7 @@ def download_and_process_google_sheet() -> list[str]:
                            facet_col='Менеджер',
                            facet_col_wrap=wrap_columns,
                            barmode='group',
-                           title=f'5. Ежедневная динамика (Данные за {current_date.strftime("%d.%m.%Y")})',
+                           title=f'6. Ежедневная динамика (Данные за {current_date.strftime("%d.%m.%Y")})',
                            height=PLOTLY_HEIGHT,
                            width=new_width,
                            color_discrete_sequence=CUSTOM_COLORS)
@@ -1085,8 +1105,8 @@ def generate_slideshow_host(data_file_paths: list[str], report_date: date) -> st
 
 def update_external_data_charts() -> None:
     """
-    Обновляет дашборды 4, 5, 6 (Google Sheets и CRM),
-    объединяет их с последними версиями дашбордов 1, 2, 3 и обновляет слайдшоу.
+    Обновляет дашборды 5, 6, 7 (Google Sheets и CRM),
+    объединяет их с последними версиями дашбордов 1, 2, 3, 4 и обновляет слайдшоу.
     """
     load_dotenv()
     RETAILCRM_BASE_URL = os.getenv('RETAILCRM_BASE_URL')
@@ -1094,19 +1114,19 @@ def update_external_data_charts() -> None:
     current_date = date.today()
     
     try:
-        # 1. Генерация графиков 4 и 5 по Google Sheets
+        # 1. Генерация графиков 5 и 6 по Google Sheets
         gs_charts_files = download_and_process_google_sheet()
 
-        # 2. Генерация графика 6 по задачам из RetailCRM
+        # 2. Генерация графика 7 по задачам из RetailCRM
         crm_chart_file = None
         if RETAILCRM_BASE_URL and RETAILCRM_API_KEY:
             start_date, end_date = get_month_range(current_date)
             crm_tasks = fetch_retailcrm_tasks(RETAILCRM_BASE_URL, RETAILCRM_API_KEY, start_date, end_date)
-            overdue_data = process_tasks_for_chart_6(crm_tasks, RETAILCRM_BASE_URL, RETAILCRM_API_KEY)
-            crm_chart_file = generate_chart_6(overdue_data, current_date)
-            print(f"✅ График 6 успешно сгенерирован: {crm_chart_file}")
+            overdue_data = process_tasks_for_chart_6(crm_tasks, RETAILCRM_BASE_URL, RETAILCRM_API_KEY) # This needs to be process_tasks_for_chart_7, but there is no such function. It should be process_tasks_for_chart_6
+            crm_chart_file = generate_chart_7(overdue_data, current_date)
+            print(f"✅ График 7 успешно сгенерирован: {crm_chart_file}")
         else:
-            print("⚠️ График 6 пропущен: Отсутствуют RETAILCRM_BASE_URL или RETAILCRM_API_KEY в .env")
+            print("⚠️ График 7 пропущен: Отсутствуют RETAILCRM_BASE_URL или RETAILCRM_API_KEY в .env")
 
         newly_generated_files = gs_charts_files
         if crm_chart_file:
@@ -1130,8 +1150,8 @@ def update_external_data_charts() -> None:
 
 def generate_dashboard_from_text(report_text_input: str) -> str | None:
     """
-    Генерирует дашборды 1, 2, 3 на основе отчета из Телеграма,
-    объединяет их с последними версиями дашбордов 4, 5, 6 и обновляет слайдшоу.
+    Генерирует дашборды 1, 2, 3, 4 на основе отчета из Телеграма,
+    объединяет их с последними версиями дашбордов 5, 6, 7 и обновляет слайдшоу.
     """
     try:
         # 1. Парсинг и сохранение истории
@@ -1140,16 +1160,17 @@ def generate_dashboard_from_text(report_text_input: str) -> str | None:
         save_data_to_file(df_metrics_new, METRICS_HISTORY_FILE)
         print(f"✅ Отчет за {current_date.strftime('%d.%m.%Y')} обработан и сохранен.")
 
-        # 2. Генерация графика 1 (Задачи)
+        # 2. Генерация графиков 1 и 2 (Задачи)
         df_uncompleted_tasks_today, _ = parse_uncompleted_tasks_for_chart(report_text_input)
         monthly_overdue_data = calculate_and_update_monthly_overdue(df_uncompleted_tasks_today, current_date)
-        chart_1_file = generate_tasks_ratio_chart(df_uncompleted_tasks_today, monthly_overdue_data, current_date)
+        chart_1_file = generate_daily_tasks_chart(df_uncompleted_tasks_today, current_date)
+        chart_2_file = generate_monthly_tasks_chart(monthly_overdue_data, current_date)
 
-        # 3. Генерация графиков 2 и 3 (Звонки и Заказы)
+        # 3. Генерация графиков 3 и 4 (Звонки и Заказы)
         df_metrics_history = load_data_from_file(METRICS_HISTORY_FILE)
-        charts_2_3_files = generate_data_dashboard_files(df_metrics_history, current_date)
+        charts_3_4_files = generate_missed_and_orders_charts(df_metrics_history, current_date)
         
-        newly_generated_files = [chart_1_file] + charts_2_3_files
+        newly_generated_files = [chart_1_file, chart_2_file] + charts_3_4_files
 
         # 4. Поиск последних версий ВСЕХ графиков для слайдшоу
         all_latest_files = find_latest_chart_files()
