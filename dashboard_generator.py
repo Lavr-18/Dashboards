@@ -742,7 +742,7 @@ def download_and_process_google_sheet() -> list[str]:
 
         return full_name
 
-    current_date = date.today()
+    current_date = date.today() - timedelta(days=1)
     generated_files = []
 
     print("🔄 Начинается загрузка и обработка Google Таблицы...")
