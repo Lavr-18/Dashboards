@@ -350,41 +350,22 @@ def generate_chart_7(overdue_data: dict, report_date: date) -> str:
 
     if df.empty or df['Просрочено'].sum() == 0:
         print("⚠️ График 7: Нет просроченных задач для отображения.")
-        # Создаем пустой заглушечный график
-        fig = go.Figure()
+        # Создаем зеленую круговую диаграмму, если нет просрочки
+        fig = go.Figure(data=[go.Pie(values=[1], labels=[''], marker_colors=[COLOR_COMPLETED])])
         fig.add_annotation(
             x=0.5, y=0.5,
-            text="Нет просроченных задач \"Связаться\"",
+            text="Нет просроченных задач<br>\"Связаться с клиентом\"!",
             showarrow=False,
-            font=dict(size=24, color="green")
+            font=dict(size=26, color="white")
         )
-        fig.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH, template="plotly_white", title_text='7. Просроченные задачи "Связаться с клиентом"')
+        fig.update_traces(hoverinfo='none', textinfo='none')
+        fig.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH, template="plotly_white", title_text='7. Просроченные задачи "Связаться с клиентом"', showlegend=False)
     else:
         fig = px.bar(
             df, x='Менеджер', y='Просрочено', text='Просрочено',
             title='7. Просроченные задачи "Связаться с клиентом" по менеджерам (за месяц)',
             color_discrete_sequence=[COLOR_MISSED]
         )
-
-        fig.update_traces(textposition='outside')
-        fig.update_layout(
-            yaxis_title="Количество просроченных задач",
-            xaxis_title="Менеджер",
-            height=PLOTLY_HEIGHT,
-            width=PLOTLY_WIDTH,
-            template="plotly_white",
-            uniformtext_minsize=10,
-            uniformtext_mode='hide',
-        )
-        fig.update_xaxes(tickangle=45)
-        fig.update_yaxes(rangemode='tozero')
-
-    html_content = f"{fig.to_html(full_html=False, include_plotlyjs='cdn')}"
-
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(generate_plot_html_template(f"ОКК - Просрочка CRM {current_date_str}", html_content))
-
-    return filename
 
         fig.update_traces(textposition='outside')
         fig.update_layout(
@@ -675,7 +656,7 @@ def generate_missed_and_orders_charts(df_metrics_history: pd.DataFrame, report_d
         missed_labels = ['Пропущено', 'Перезвон > 5 мин', 'Не перезвонили']
 
         if sum(missed_values) == 0:
-            fig_missed = go.Figure(data=[go.Pie(values=[1], labels=[''], marker_colors=[COLOR_COMPLETED], hole=.3)])
+            fig_missed = go.Figure(data=[go.Pie(values=[1], labels=[''], marker_colors=[COLOR_COMPLETED])])
             fig_missed.add_annotation(
                 x=0.5, y=0.5,
                 text="Нет пропущенных<br>звонков!!!",
@@ -694,7 +675,6 @@ def generate_missed_and_orders_charts(df_metrics_history: pd.DataFrame, report_d
             fig_missed = go.Figure(data=[go.Pie(
                 labels=missed_labels,
                 values=missed_values,
-                hole=.3,
                 marker_colors=[COLOR_MISSED, 'orange', 'lightcoral']
             )])
             fig_missed.update_traces(textinfo='percent+label+value')
@@ -1044,6 +1024,33 @@ def generate_slideshow_host(data_file_paths: list[str], report_date: date) -> st
             iframe {{
                 pointer-events: none; 
             }}
+            #nav-buttons {{
+                position: absolute;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 100;
+                display: flex;
+                gap: 15px;
+            }}
+            .nav-button {{
+                background-color: rgba(0, 0, 0, 0.5);
+                color: white;
+                border: 1px solid white;
+                border-radius: 50%;
+                width: 50px;
+                height: 50px;
+                font-size: 24px;
+                font-weight: bold;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background-color 0.3s;
+            }}
+            .nav-button:hover {{
+                background-color: rgba(255, 255, 255, 0.3);
+            }}
         </style>
     </head>
     <body>
@@ -1051,11 +1058,17 @@ def generate_slideshow_host(data_file_paths: list[str], report_date: date) -> st
             </div>
 
         <script>
-            const files = {json.dumps(iframe_src_list)};
-            const interval = {SLIDESHOW_INTERVAL_SECONDS} * 1000;
+            const files = {json.dumps(iframe_src_list)}; // ['file1.html', 'file2.html', ...]
+            const interval = {SLIDESHOW_INTERVAL_SECONDS} * 1000; // 15000
             let currentSlide = 0;
             const container = document.getElementById('slideshow-container');
             let iframes = [];
+            let slideshowTimeout;
+
+            // --- Создание кнопок ---
+            const navContainer = document.createElement('div');
+            navContainer.id = 'nav-buttons';
+            document.body.appendChild(navContainer);
 
             files.forEach((src, index) => {{
                 const iframe = document.createElement('iframe');
@@ -1067,27 +1080,55 @@ def generate_slideshow_host(data_file_paths: list[str], report_date: date) -> st
                 iframes.push(iframe);
             }});
 
+            // --- Функции управления слайд-шоу ---
+
             function showSlide(index) {{
                 iframes.forEach(iframe => iframe.classList.remove('active'));
-
                 if (iframes[index]) {{
                     iframes[index].classList.add('active');
                 }}
             }}
 
-            function startSlideshow() {{
+            function advanceAndRestartTimer() {{
                 if (iframes.length === 0) return;
-
-                showSlide(currentSlide);
-
+                // Сдвигаем индекс на следующий слайд
                 currentSlide = (currentSlide + 1) % iframes.length;
+                showSlide(currentSlide);
+                // Устанавливаем таймер для следующего автоматического переключения
+                slideshowTimeout = setTimeout(advanceAndRestartTimer, interval);
+            }}
 
-                setTimeout(startSlideshow, interval);
+            function showPrev() {{
+                clearTimeout(slideshowTimeout); // Сбрасываем таймер
+                currentSlide = (currentSlide - 1 + iframes.length) % iframes.length;
+                showSlide(currentSlide);
+                slideshowTimeout = setTimeout(advanceAndRestartTimer, interval); // Перезапускаем таймер
+            }}
+
+            function showNext() {{
+                clearTimeout(slideshowTimeout); // Сбрасываем таймер
+                currentSlide = (currentSlide + 1) % iframes.length;
+                showSlide(currentSlide);
+                slideshowTimeout = setTimeout(advanceAndRestartTimer, interval); // Перезапускаем таймер
             }}
 
             window.onload = function() {{
                 if (iframes.length > 0) {{
-                    setTimeout(startSlideshow, 1000); 
+                    // --- Добавление кнопок в контейнер ---
+                    const prevButton = document.createElement('button');
+                    prevButton.className = 'nav-button';
+                    prevButton.innerHTML = '&lt;'; // <
+                    prevButton.onclick = showPrev;
+                    navContainer.appendChild(prevButton);
+
+                    const nextButton = document.createElement('button');
+                    nextButton.className = 'nav-button';
+                    nextButton.innerHTML = '&gt;'; // >
+                    nextButton.onclick = showNext;
+                    navContainer.appendChild(nextButton);
+
+                    showSlide(currentSlide); // Показываем первый слайд
+                    slideshowTimeout = setTimeout(advanceAndRestartTimer, interval); // Запускаем автоматическое переключение
                 }} else {{
                     container.innerHTML = '<div style="color: white; padding: 20px; text-align: center;">Нет файлов для слайдшоу. Проверьте генерацию данных.</div>';
                 }}
