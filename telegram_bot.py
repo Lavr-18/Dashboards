@@ -8,7 +8,8 @@ import requests  # НОВЫЙ ИМПОРТ
 
 # Импортируем нашу синхронную функцию из файла dashboard_generator.py
 from dashboard_generator import generate_dashboard_from_text, download_and_process_google_sheet, \
-    generate_slideshow_host, LATEST_DASHBOARD_FILE, upload_files_to_sftp, DASHBOARD_PREFIX_GS, NEW_FILES_LIST
+    generate_slideshow_host, LATEST_DASHBOARD_FILE, upload_files_to_sftp, DASHBOARD_PREFIX_GS, NEW_FILES_LIST, \
+    update_external_data_charts
 
 # Импорты aiogram
 from aiogram import Bot, Dispatcher, types, F
@@ -80,30 +81,13 @@ def cleanup_old_dashboards(days_to_keep: int = 1):
 
 async def scheduled_dashboard_update():
     """
-    Ежечасное обновление графиков Google Sheet и перезапуск слайдшоу.
+    Ежечасное обновление графиков 4, 5, 6 (Google Sheets, CRM) и перезапуск слайдшоу.
     """
-    print("⏰ Запущено ежечасное обновление графиков Google Sheet...")
+    logger.info("⏰ Запущено ежечасное обновление внешних данных (Google Sheets, CRM)...")
     try:
-        # 1. Генерация новых графиков (сохраняет пути в NEW_FILES_LIST)
-        new_gs_files = download_and_process_google_sheet()
-
-        if new_gs_files:
-            # 2. Генерация главного файла слайдшоу.
-            # Мы передаем пустой список для ботовых файлов, так как они не хранят историю
-            # в глобальном состоянии. generate_slideshow_host объединит их с NEW_FILES_LIST.
-            slideshow_host_file = generate_slideshow_host([], date.today())
-
-            # 3. Загрузка только НОВЫХ файлов и хоста
-            load_dotenv()
-            remote_path = os.getenv('SFTP_PATH', '/')
-            all_files_to_upload = new_gs_files + [slideshow_host_file]
-            upload_files_to_sftp(all_files_to_upload, remote_path)
-
-            logger.info(f"✅ Ежечасное обновление завершено. Обновлено {len(new_gs_files)} графиков и хост.")
-
-        else:
-            logger.warning("⚠️ Графики Google Sheets не сгенерированы (проблема с данными или загрузкой).")
-
+        # Вызываем синхронную функцию обновления в отдельном потоке
+        await asyncio.to_thread(update_external_data_charts)
+        logger.info("✅ Ежечасное обновление внешних данных и слайдшоу завершено.")
     except Exception as e:
         logger.error(f"Критическая ошибка в ежечасном обновлении: {e}", exc_info=True)
 
