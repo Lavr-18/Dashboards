@@ -1232,6 +1232,7 @@ def generate_dashboard_from_text(report_text_input: str) -> str | None:
         raise Exception(f"Неизвестная ошибка генерации дашборда из текста: {e}")
 
 
+
 # --- КОНСОЛЬНЫЙ ЗАПУСК ---
 
 if __name__ == "__main__":
