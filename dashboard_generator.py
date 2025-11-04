@@ -655,14 +655,21 @@ def generate_data_dashboard_files(df_metrics_history: pd.DataFrame, report_date:
         missed_labels = ['Пропущено', 'Перезвон > 5 мин', 'Не перезвонили']
 
         if sum(missed_values) == 0:
-            fig_missed = go.Figure()
+            fig_missed = go.Figure(data=[go.Pie(values=[1], labels=[''], marker_colors=[COLOR_COMPLETED], hole=.3)])
             fig_missed.add_annotation(
                 x=0.5, y=0.5,
-                text="2. Нет пропущенных звонков!!!",
+                text="Нет пропущенных<br>звонков!!!",
                 showarrow=False,
-                font=dict(size=30, color="green")
+                font=dict(size=30, color="white")
             )
-            fig_missed.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH, template="plotly_white", title_text=f'2. Пропущенные звонки ({report_date_str})')
+            fig_missed.update_traces(hoverinfo='none', textinfo='none')
+            fig_missed.update_layout(
+                title_text=f'2. Пропущенные звонки ({report_date_str})',
+                height=PLOTLY_HEIGHT,
+                width=PLOTLY_WIDTH,
+                template="plotly_white",
+                showlegend=False
+            )
         else:
             fig_missed = go.Figure(data=[go.Pie(
                 labels=missed_labels,
