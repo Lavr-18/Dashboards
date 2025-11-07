@@ -377,7 +377,6 @@ def generate_chart_7(overdue_data: dict, report_date: date) -> str:
             uniformtext_minsize=10,
             uniformtext_mode='hide',
         )
-        fig.update_xaxes(tickangle=45)
         fig.update_yaxes(rangemode='tozero')
 
     html_content = f"{fig.to_html(full_html=False, include_plotlyjs='cdn')}"
@@ -570,14 +569,13 @@ def generate_daily_tasks_chart(df_daily, report_date: date):
 
     fig.update_layout(
         barmode='stack',
-        title_text=f"1. Задачи за сегодня ({current_date_str})",
+        title_text=f"1. Задачи за вчера ({current_date_str})",
         height=PLOTLY_HEIGHT,
         width=PLOTLY_WIDTH,
         template="plotly_white",
         legend_title_text='Статус',
         yaxis_title="Кол-во задач"
     )
-    fig.update_xaxes(tickangle=45)
     fig.update_yaxes(rangemode='tozero')
 
     chart_filename = f'{DASHBOARD_PREFIX}_1_tasks_daily_{report_date.strftime("%Y-%m-%d")}.html'
@@ -627,7 +625,6 @@ def generate_monthly_tasks_chart(monthly_overdue_data, report_date: date):
         legend_title_text='Статус',
         yaxis_title="Кол-во задач"
     )
-    fig.update_xaxes(tickangle=45)
     fig.update_yaxes(rangemode='tozero')
 
     chart_filename = f'{DASHBOARD_PREFIX}_2_tasks_monthly_{report_date.strftime("%Y-%m-%d")}.html'
