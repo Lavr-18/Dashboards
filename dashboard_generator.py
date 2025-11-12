@@ -25,7 +25,7 @@ SLIDESHOW_INTERVAL_SECONDS = 15
 DASHBOARD_PREFIX = 'dashboard_data'
 DASHBOARD_PREFIX_GS = 'dashboard_gs_data'
 NEW_FILES_LIST = []
-REFRESH_INTERVAL_SECONDS = 3600  # Обновление каждый час (для внешних графиков)
+REFRESH_INTERVAL_SECONDS = 1800  # Обновление каждый час (для внешних графиков)
 
 # --- НОВЫЕ КОНСТАНТЫ ДЛЯ RETAILCRM ---
 TASK_FILTER_TEXT_LOWER = "связаться с клиентом"
