@@ -44,6 +44,7 @@ BACKGROUND_URL = 'https://disk.yandex.ru/i/wAjsKqMrRGPpkQ'
 
 # --- НОВЫЕ КОНСТАНТЫ ДЛЯ GOOGLE SHEETS ---
 GOOGLE_SHEET_EXPORT_URL = "https://docs.google.com/spreadsheets/d/1gRE19ub6gQz6o9yKEGgaESvN3oN52BRad-X2dYgrUEw/export?format=xlsx"
+GOOGLE_SHEET_PLAN_FACT_URL = "https://docs.google.com/spreadsheets/d/1ytr2Fs6GZtVZ4ZOnf6LIgjfC1JHaLr166lFdjCBt-MI/export?format=xlsx"
 
 
 # --- УТИЛИТЫ ДЛЯ JSON И ДАТЫ ---
@@ -148,9 +149,10 @@ def find_latest_chart_files() -> list[str]:
         f"{DASHBOARD_PREFIX}_3_*.html",
         f"{DASHBOARD_PREFIX}_4_*.html",
         f"{DASHBOARD_PREFIX_GS}_5_*.html",
-        f"{DASHBOARD_PREFIX_GS}_6_*.html",
-        f"{DASHBOARD_PREFIX_GS}_7_*.html",
-        f"{DASHBOARD_PREFIX}_8_*.html",
+        f"{DASHBOARD_PREFIX_GS}_6_*.html", # План/Факт
+        f"{DASHBOARD_PREFIX_GS}_7_*.html", # Вчера
+        f"{DASHBOARD_PREFIX_GS}_8_*.html", # Сегодня
+        f"{DASHBOARD_PREFIX}_9_*.html", # CRM
     ]
     
     latest_files = []
@@ -336,9 +338,9 @@ def process_tasks_for_chart_6(tasks: list, base_url: str, api_key: str) -> dict:
     return dict(overdue_tasks_by_manager)
 
 
-def generate_chart_8(overdue_data: dict, report_date: date) -> str:
+def generate_chart_9(overdue_data: dict, report_date: date) -> str:
     """
-    Генерирует Plotly график 8: Просроченные задачи по менеджерам за месяц.
+    Генерирует Plotly график 9: Просроченные задачи по менеджерам за месяц.
     """
 
     current_date_str = report_date.strftime('%d.%m.%Y')
@@ -347,10 +349,10 @@ def generate_chart_8(overdue_data: dict, report_date: date) -> str:
     sorted_data = sorted(overdue_data.items(), key=lambda item: item[1], reverse=True)
     df = pd.DataFrame(sorted_data, columns=['Менеджер', 'Просрочено'])
 
-    filename = f"{DASHBOARD_PREFIX}_8_monthly_crm_tasks_{report_date.strftime('%Y-%m-%d_%H%M%S')}.html"
+    filename = f"{DASHBOARD_PREFIX}_9_monthly_crm_tasks_{report_date.strftime('%Y-%m-%d_%H%M%S')}.html"
 
     if df.empty or df['Просрочено'].sum() == 0:
-        print("⚠️ График 8: Нет просроченных задач для отображения.")
+        print("⚠️ График 9: Нет просроченных задач для отображения.")
         # Создаем зеленую круговую диаграмму, если нет просрочки
         fig = go.Figure(data=[go.Pie(values=[1], labels=[''], marker_colors=[COLOR_COMPLETED])])
         fig.add_annotation(
@@ -360,11 +362,11 @@ def generate_chart_8(overdue_data: dict, report_date: date) -> str:
             font=dict(size=26, color="white")
         )
         fig.update_traces(hoverinfo='none', textinfo='none')
-        fig.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH, template="plotly_white", title_text='8. Просроченные задачи "Связаться с клиентом"', showlegend=False)
+        fig.update_layout(height=PLOTLY_HEIGHT, width=PLOTLY_WIDTH, template="plotly_white", title_text='9. Просроченные задачи "Связаться с клиентом"', showlegend=False)
     else:
         fig = px.bar(
             df, x='Менеджер', y='Просрочено', text='Просрочено',
-            title='8. Просроченные задачи "Связаться с клиентом" по менеджерам (за месяц)',
+            title='9. Просроченные задачи "Связаться с клиентом" по менеджерам (за месяц)',
             color_discrete_sequence=[COLOR_MISSED]
         )
 
@@ -727,6 +729,109 @@ def generate_missed_and_orders_charts(df_metrics_history: pd.DataFrame, report_d
     return generated_files
 
 
+def generate_plan_fact_chart() -> list[str]:
+    """
+    Генерирует график 6: План/Факт за месяц из отдельной Google Таблицы.
+    """
+    print("🔄 Начинается загрузка и обработка Google Таблицы 'План/Факт'...")
+    generated_files = []
+    try:
+        response = requests.get(GOOGLE_SHEET_PLAN_FACT_URL)
+        response.raise_for_status()
+        xlsx_data = io.BytesIO(response.content)
+
+        # Читаем столбцы A (0), BM (64), BN (65)
+        df = pd.read_excel(xlsx_data, sheet_name=0, header=None, usecols=[0, 64, 65])
+        df.columns = ['Manager', 'Plan', 'Fact_Percentage']
+        
+        # --- Логика извлечения последнего блока данных ---
+        # Находим строки, которые pandas распознал как даты (datetime объекты)
+        is_date = df['Manager'].apply(lambda x: isinstance(x, (datetime, pd.Timestamp)))
+        date_indices = df[is_date].index
+
+        if date_indices.empty:
+            print("⚠️ График 6: Не найдено ни одной строки с датой в столбце A. Пропуск генерации.")
+            return []
+
+        last_date_index = date_indices[-1]
+        last_date_obj = df.loc[last_date_index, 'Manager']
+
+        # Форматируем дату для заголовка (например, '13 ноября')
+        months_ru = {1: 'января', 2: 'февраля', 3: 'марта', 4: 'апреля', 5: 'мая', 6: 'июня',
+                     7: 'июля', 8: 'августа', 9: 'сентября', 10: 'октября', 11: 'ноября', 12: 'декабря'}
+        last_date_str = f"{last_date_obj.day} {months_ru.get(last_date_obj.month, '')}"
+
+        # Ищем начало блока данных (индекс предыдущей даты или начало файла)
+        start_index = 0
+        if len(date_indices) > 1:
+            start_index = date_indices[-2] + 1
+
+        # Выбираем срез данных для последнего блока
+        df_current = df.iloc[start_index:last_date_index].copy()
+
+        # Очищаем от пустых строк
+        df_current.dropna(subset=['Manager'], inplace=True)
+        df_current = df_current[df_current['Manager'].astype(str).str.strip() != '']
+
+        if df_current.empty:
+            print(f"⚠️ График 6: Не найдено данных о менеджерах перед датой '{last_date_str}'. Пропуск.")
+            return []
+
+        # --- Обработка данных ---
+        # Преобразуем процент из формата '0.5' в '50'
+        df_current['Fact_Percentage'] = pd.to_numeric(df_current['Fact_Percentage'], errors='coerce').fillna(0) * 100
+        df_current['Plan'] = pd.to_numeric(df_current['Plan'], errors='coerce').fillna(0)
+
+        # Рассчитываем фактическую сумму в рублях
+        df_current['Fact_Amount'] = df_current['Plan'] * (df_current['Fact_Percentage'] / 100)
+
+        # --- Создание графика ---
+        fig = go.Figure()
+
+        # Столбцы "План" (всегда 100%)
+        fig.add_trace(go.Bar(
+            x=df_current['Manager'],
+            y=[100] * len(df_current),
+            name='План',
+            marker_color='#C3A0C5',
+            text=[f"{int(p):,} ₽".replace(",", " ") for p in df_current['Plan']],
+            textposition='inside',
+            insidetextanchor='middle'
+        ))
+
+        # Столбцы "Факт" (процент выполнения)
+        fig.add_trace(go.Bar(
+            x=df_current['Manager'],
+            y=df_current['Fact_Percentage'],
+            name='Факт',
+            marker_color='#C9E2AA',
+            text=[f"{int(f):,} ₽".replace(",", " ") for f in df_current['Fact_Amount']],
+            textposition='auto'
+        ))
+
+        fig.update_layout(
+            barmode='group',
+            title_text=f'6. План/Факт за месяц (данные на {last_date_str})',
+            height=PLOTLY_HEIGHT,
+            width=PLOTLY_WIDTH,
+            template="plotly_white",
+            yaxis_ticksuffix='%',
+            yaxis_range=[0, 110] # Даем немного места сверху для подписей
+        )
+        fig.update_traces(textfont_size=12, textangle=0)
+
+        filename = f"{DASHBOARD_PREFIX_GS}_6_plan_fact_{date.today().strftime('%Y-%m-%d_%H%M%S')}.html"
+        html_content = f"{fig.to_html(full_html=False, include_plotlyjs='cdn')}"
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(generate_plot_html_template(f"ОКК - План/Факт {last_date_str}", html_content))
+        generated_files.append(filename)
+        print(f"✅ График 6 (План/Факт) успешно сгенерирован: {filename}")
+
+    except Exception as e:
+        print(f"❌ Ошибка при генерации графика 6 (План/Факт): {e}")
+
+    return generated_files
+
 # --- ФУНКЦИИ GOOGLE SHEETS (без изменений) ---
 def download_and_process_google_sheet() -> list[str]:
     """
@@ -765,13 +870,6 @@ def download_and_process_google_sheet() -> list[str]:
 
         df_daily['Менеджер'] = df_daily['Менеджер'].apply(format_manager_name)
 
-        df_manual = pd.read_excel(xlsx_data, sheet_name='Сводка_Текущая', engine='openpyxl',
-                                  header=None, skiprows=1, usecols=[0, 1])
-        df_manual.columns = ['Менеджер', 'На согласовании (Р)']
-        df_manual = df_manual.dropna(subset=['Менеджер'])
-
-        df_manual['Менеджер'] = df_manual['Менеджер'].apply(format_manager_name)
-
     except Exception as e:
         print(f"❌ Ошибка при загрузке или чтении Google Sheet: {e}")
         return []
@@ -780,14 +878,22 @@ def download_and_process_google_sheet() -> list[str]:
     filename_gs_1 = f"{DASHBOARD_PREFIX_GS}_5_monthly_{current_date.strftime('%Y-%m-%d_%H%M%S')}.html"
 
     start_of_month = pd.Timestamp(current_date).to_period('M').start_time
-    df_daily_filtered = df_daily[df_daily['Дата'] >= start_of_month]
+    df_monthly_filtered = df_daily[df_daily['Дата'] >= start_of_month]
 
-    df_agg_month = df_daily_filtered.groupby('Менеджер').agg({
+    df_agg_month = df_monthly_filtered.groupby('Менеджер').agg({
         'Оплачено Всего (Р)': 'sum',
         'Отгружено (Факт, Р)': 'sum'
     }).reset_index()
 
-    df_result = pd.merge(df_agg_month, df_manual, on='Менеджер', how='left').fillna(0)
+    # --- НОВАЯ ЛОГИКА: Берем "На согласовании" из данных за вчера ---
+    yesterday_date_only = pd.to_datetime(current_date).date()
+    df_yesterday = df_daily[df_daily['Дата'].dt.date == yesterday_date_only].copy()
+    
+    df_soglasovanie = df_yesterday[['Менеджер', 'Сумма на согласовании (Р)']].copy()
+    df_soglasovanie = df_soglasovanie.rename(columns={'Сумма на согласовании (Р)': 'На согласовании (Р)'})
+
+    # Объединяем агрегированные данные за месяц с данными "На согласовании" за вчера
+    df_result = pd.merge(df_agg_month, df_soglasovanie, on='Менеджер', how='left').fillna(0)
 
     if not df_result.empty:
         df_plot = df_result.set_index('Менеджер').stack().reset_index()
@@ -884,9 +990,9 @@ def download_and_process_google_sheet() -> list[str]:
         generated_files.append(filename_gs_2)
     else:
         # --- ДОБАВЛЕННЫЙ ЛОГ: если нет данных за сегодня ---
-        print(f"⚠️ График 6: Пропуск генерации, так как нет данных за {current_date.strftime('%d.%m.%Y')} в Google Sheet.")
+        print(f"⚠️ График 7: Пропуск генерации, так как нет данных за {current_date.strftime('%d.%m.%Y')} в Google Sheet.")
 
-    # --- ГРАФИК 7: Данные за СЕГОДНЯ ---
+    # --- ГРАФИК 8: Данные за СЕГОДНЯ ---
     today_chart_files = generate_daily_chart_for_today(df_daily, format_manager_name)
     generated_files.extend(today_chart_files)
 
@@ -899,11 +1005,11 @@ def download_and_process_google_sheet() -> list[str]:
 
 def generate_daily_chart_for_today(df_daily: pd.DataFrame, name_formatter) -> list[str]:
     """
-    Генерирует график 7: Ежедневная динамика за СЕГОДНЯ.
+    Генерирует график 8: Ежедневная динамика за СЕГОДНЯ.
     Возвращает список с именем файла, если данные есть, иначе пустой список.
     """
     today_date = date.today()
-    filename_gs_today = f"{DASHBOARD_PREFIX_GS}_7_daily_today_{today_date.strftime('%Y-%m-%d_%H%M%S')}.html"
+    filename_gs_today = f"{DASHBOARD_PREFIX_GS}_8_daily_today_{today_date.strftime('%Y-%m-%d_%H%M%S')}.html"
     generated_files = []
 
     # --- ФИЛЬТРАЦИЯ ДАННЫХ: только за сегодняшний день ---
@@ -928,7 +1034,7 @@ def generate_daily_chart_for_today(df_daily: pd.DataFrame, name_formatter) -> li
                            facet_col='Менеджер',
                            facet_col_wrap=7,
                            barmode='group',
-                           title=f'7. Ежедневная динамика (Данные за СЕГОДНЯ, {today_date.strftime("%d.%m.%Y")})',
+                           title=f'8. Ежедневная динамика (Данные за СЕГОДНЯ, {today_date.strftime("%d.%m.%Y")})',
                            height=PLOTLY_HEIGHT,
                            width=PLOTLY_WIDTH,
                            color_discrete_sequence=CUSTOM_COLORS)
@@ -947,9 +1053,9 @@ def generate_daily_chart_for_today(df_daily: pd.DataFrame, name_formatter) -> li
             f.write(generate_plot_html_template(f"ОКК - Сегодня {today_date.strftime('%d.%m')}", html_content))
 
         generated_files.append(filename_gs_today)
-        print(f"✅ График 7 (за сегодня) успешно сгенерирован: {filename_gs_today}")
+        print(f"✅ График 8 (за сегодня) успешно сгенерирован: {filename_gs_today}")
     else:
-        print(f"⚠️ График 7: Пропуск генерации, так как нет данных за сегодня ({today_date.strftime('%d.%m.%Y')}) в Google Sheet.")
+        print(f"⚠️ График 8: Пропуск генерации, так как нет данных за сегодня ({today_date.strftime('%d.%m.%Y')}) в Google Sheet.")
 
     return generated_files
 
@@ -1029,7 +1135,7 @@ def generate_slideshow_host(data_file_paths: list[str], report_date: date) -> st
         match = re.search(r'dashboard_(?:data|gs_data)_(\d+)_.*', os.path.basename(filename))
         if match:
             return int(match.group(1))
-        return 99 # Поместить файлы без номера в конец
+        return 999 # Поместить файлы без номера в конец
 
     # Сортируем файлы, чтобы обеспечить порядок 1-6
     sorted_files = sorted(data_file_paths, key=get_chart_number)
@@ -1205,7 +1311,7 @@ def generate_slideshow_host(data_file_paths: list[str], report_date: date) -> st
 
 def update_external_data_charts() -> None:
     """
-    Обновляет дашборды 5, 6, 7, 8 (Google Sheets и CRM),
+    Обновляет дашборды 5, 6, 7, 8, 9 (Google Sheets и CRM),
     объединяет их с последними версиями дашбордов 1, 2, 3, 4 и обновляет слайдшоу.
     """
     load_dotenv()
@@ -1215,30 +1321,33 @@ def update_external_data_charts() -> None:
     
     try:
         # 1. Генерация графиков 5 и 6 по Google Sheets
-        gs_charts_files = download_and_process_google_sheet()
+        gs_charts_files_5_7 = download_and_process_google_sheet()
 
-        # 2. Генерация графика 8 по задачам из RetailCRM
-        crm_chart_file_8 = None
+        # 2. Генерация графика 6 (План/Факт)
+        plan_fact_chart_file = generate_plan_fact_chart()
+
+        # 3. Генерация графика 9 по задачам из RetailCRM
+        crm_chart_file_9 = None
         if RETAILCRM_BASE_URL and RETAILCRM_API_KEY:
             start_date, end_date = get_month_range(current_date)
             crm_tasks = fetch_retailcrm_tasks(RETAILCRM_BASE_URL, RETAILCRM_API_KEY, start_date, end_date)
             overdue_data = process_tasks_for_chart_6(crm_tasks, RETAILCRM_BASE_URL, RETAILCRM_API_KEY)
-            crm_chart_file_8 = generate_chart_8(overdue_data, current_date)
-            print(f"✅ График 8 успешно сгенерирован: {crm_chart_file_8}")
+            crm_chart_file_9 = generate_chart_9(overdue_data, current_date)
+            print(f"✅ График 9 успешно сгенерирован: {crm_chart_file_9}")
         else:
-            print("⚠️ График 8 пропущен: Отсутствуют RETAILCRM_BASE_URL или RETAILCRM_API_KEY в .env")
+            print("⚠️ График 9 пропущен: Отсутствуют RETAILCRM_BASE_URL или RETAILCRM_API_KEY в .env")
 
-        newly_generated_files = gs_charts_files
-        if crm_chart_file_8:
-            newly_generated_files.append(crm_chart_file_8)
+        newly_generated_files = gs_charts_files_5_7 + plan_fact_chart_file
+        if crm_chart_file_9:
+            newly_generated_files.append(crm_chart_file_9)
 
-        # 3. Поиск последних версий ВСЕХ графиков
+        # 4. Поиск последних версий ВСЕХ графиков
         all_latest_files = find_latest_chart_files()
 
-        # 4. Генерация хост-файла слайдшоу
+        # 5. Генерация хост-файла слайдшоу
         slideshow_host_file = generate_slideshow_host(all_latest_files, current_date)
 
-        # 5. Загрузка на SFTP только НОВЫХ файлов и хоста
+        # 6. Загрузка на SFTP только НОВЫХ файлов и хоста
         remote_path = os.getenv('SFTP_PATH', '/')
         files_to_upload = newly_generated_files + [slideshow_host_file]
         upload_files_to_sftp(files_to_upload, remote_path)
@@ -1250,8 +1359,8 @@ def update_external_data_charts() -> None:
 
 def generate_dashboard_from_text(report_text_input: str) -> str | None:
     """
-    Генерирует дашборды 1, 2, 3, 4 на основе отчета из Телеграма, (графики 5, 6, 7, 8 не затрагиваются)
-    объединяет их с последними версиями дашбордов 5, 6, 7, 8 и обновляет слайдшоу.
+    Генерирует дашборды 1, 2, 3, 4 на основе отчета из Телеграма, (графики 5, 6, 7, 8, 9 не затрагиваются)
+    объединяет их с последними версиями дашбордов 5, 6, 7, 8, 9 и обновляет слайдшоу.
     """
     try:
         # 1. Парсинг и сохранение истории
